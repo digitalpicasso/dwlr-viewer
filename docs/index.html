@@ -1,1 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>DWLR Deck Viewer</title>
+  <link rel="stylesheet" href="viewer.css" />
+</head>
+<body>
+  <div class="deck">
+    <div class="topbar">
+      <div class="left">
+        <button class="btn" id="prev" aria-label="Previous">←</button>
+        <button class="btn" id="next" aria-label="Next">→</button>
+        <div class="page">
+          <span id="pageNum">1</span>
+          <span class="muted">/</span>
+          <span id="pageCount">—</span>
+        </div>
+      </div>
+
+      <div class="right">
+        <button class="btn" id="zoomOut" aria-label="Zoom out">−</button>
+        <button class="btn" id="zoomIn" aria-label="Zoom in">+</button>
+        <button class="btn" id="fit" aria-label="Fit to frame">Fit</button>
+        <button class="btn" id="fs" aria-label="Fullscreen">⤢</button>
+      </div>
+    </div>
+
+    <div class="stage" id="stage">
+      <canvas id="canvas"></canvas>
+      <div class="hint muted">Swipe or use ← →</div>
+      <div class="loading" id="loading">Loading…</div>
+    </div>
+
+    <div class="bottombar">
+      <a id="driveLink" class="driveLink" href="#" target="_blank" rel="noopener">
+        Save / Share (Google Drive)
+      </a>
+    </div>
+  </div>
+
+  <!-- PDF.js from CDN (keeps your repo simple) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.2.67/pdf.min.js"></script>
+  <script src="viewer.js"></script>
+</body>
+</html>
 
