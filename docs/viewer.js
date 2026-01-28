@@ -1,9 +1,9 @@
 /* global pdfjsLib */
 (() => {
-  console.log("DWLR viewer.js loaded v7");
-  // PDF.js worker from CDN (must match the version you load in index.html)
-  pdfjsLib.GlobalWorkerOptions.workerSrc =
-    "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.2.67/pdf.worker.min.js";
+  console.log("DWLR viewer.js loaded v8");
+
+  // IMPORTANT: local worker (matches index.html)
+  pdfjsLib.GlobalWorkerOptions.workerSrc = "pdfjs/pdf.worker.min.js";
 
   const $ = (id) => document.getElementById(id);
 
@@ -28,11 +28,13 @@
   let docPageStarts = [];
   let totalPages = 0;
 
-  let pageNum = 1; // global page number (1..totalPages)
+  let pageNum = 1;
   let scale = 1.0;
   let fitMode = true;
   let renderTask = null;
   let isRendering = false;
+
+  /* ---------- helpers ---------- */
 
   function showLoading(show) {
     if (!loadingEl) return;
@@ -58,49 +60,46 @@
   function getParams() {
     const url = new URL(window.location.href);
 
-    // multi: ?files=a.pdf|b.pdf|c.pdf
     const filesParam = url.searchParams.get("files");
-    // single: ?file=a.pdf
     const fileParam = url.searchParams.get("file");
-
     const driveParam = url.searchParams.get("drive") || "";
 
     const files = filesParam
-      ? filesParam.split("|").map((s) => s.trim()).filter(Boolean)
+      ? filesParam.split("|").map(s => s.trim()).filter(Boolean)
       : [fileParam || ""];
 
-    // Clean empties (prevents infinite loading on "")
-    const cleanedFiles = files.map((f) => (f || "").trim()).filter(Boolean);
-
-    return { files: cleanedFiles, driveParam };
+    const cleaned = files.map(f => (f || "").trim()).filter(Boolean);
+    return { files: cleaned, driveParam };
   }
 
   function stageFitScale(viewport) {
-    // compute scale so the page fits inside the stage (slide-like)
     const pad = 18;
     const availW = Math.max(1, stageEl.clientWidth - pad * 2);
     const availH = Math.max(1, stageEl.clientHeight - pad * 2);
     return Math.min(availW / viewport.width, availH / viewport.height);
   }
 
-  // Map global pageNum -> { docIndex, localPage }
   function mapGlobalToLocal(globalPage) {
     const g = clamp(globalPage, 1, totalPages);
     let docIndex = 0;
 
     for (let i = 0; i < docPageStarts.length; i++) {
       const start = docPageStarts[i];
-      const nextStart =
-        i + 1 < docPageStarts.length ? docPageStarts[i + 1] : totalPages;
-      if (g - 1 >= start && g - 1 < nextStart) {
+      const nextStart = (i + 1 < docPageStarts.length)
+        ? docPageStarts[i + 1]
+        : totalPages;
+
+      if ((g - 1) >= start && (g - 1) < nextStart) {
         docIndex = i;
         break;
       }
     }
 
-    const localZeroBased = (g - 1) - docPageStarts[docIndex];
-    return { docIndex, localPage: localZeroBased + 1 }; // pdf.js pages are 1-based
+    const localZero = (g - 1) - docPageStarts[docIndex];
+    return { docIndex, localPage: localZero + 1 };
   }
+
+  /* ---------- rendering ---------- */
 
   async function renderPage(globalNum) {
     if (!docs.length || isRendering) return;
@@ -110,16 +109,13 @@
     hideError();
 
     if (renderTask) {
-      try {
-        renderTask.cancel();
-      } catch (_) {}
+      try { renderTask.cancel(); } catch {}
       renderTask = null;
     }
 
     try {
       const { docIndex, localPage } = mapGlobalToLocal(globalNum);
-      const doc = docs[docIndex];
-      const page = await doc.getPage(localPage);
+      const page = await docs[docIndex].getPage(localPage);
 
       const baseViewport = page.getViewport({ scale: 1 });
       const useScale = fitMode ? stageFitScale(baseViewport) : scale;
@@ -129,7 +125,6 @@
       canvas.height = Math.floor(viewport.height);
 
       renderTask = page.render({ canvasContext: ctx, viewport });
-
       await renderTask.promise;
 
       pageNumEl.textContent = String(pageNum);
@@ -151,61 +146,38 @@
     renderPage(pageNum);
   }
 
-  function next() {
-    queueRender(pageNum + 1);
-  }
-  function prev() {
-    queueRender(pageNum - 1);
-  }
+  /* ---------- controls ---------- */
+
+  const next = () => queueRender(pageNum + 1);
+  const prev = () => queueRender(pageNum - 1);
 
   function zoomIn() {
     fitMode = false;
     scale = clamp(scale + 0.15, 0.4, 4);
     renderPage(pageNum);
   }
+
   function zoomOut() {
     fitMode = false;
     scale = clamp(scale - 0.15, 0.4, 4);
     renderPage(pageNum);
   }
+
   function fit() {
     fitMode = true;
     renderPage(pageNum);
   }
 
   function toggleFullscreen() {
-    const el = document.documentElement;
-    if (!document.fullscreenElement) el.requestFullscreen?.();
-    else document.exitFullscreen?.();
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen?.();
+    } else {
+      document.exitFullscreen?.();
+    }
   }
 
-  // Swipe support
-  let touchStartX = null;
-  stageEl.addEventListener(
-    "touchstart",
-    (e) => {
-      if (!e.touches?.length) return;
-      touchStartX = e.touches[0].clientX;
-    },
-    { passive: true }
-  );
+  /* ---------- events ---------- */
 
-  stageEl.addEventListener(
-    "touchend",
-    (e) => {
-      if (touchStartX === null) return;
-      const endX = e.changedTouches?.[0]?.clientX ?? touchStartX;
-      const dx = endX - touchStartX;
-      touchStartX = null;
-
-      if (Math.abs(dx) < 40) return;
-      if (dx < 0) next();
-      else prev();
-    },
-    { passive: true }
-  );
-
-  // Controls
   nextBtn.addEventListener("click", next);
   prevBtn.addEventListener("click", prev);
   zoomInBtn.addEventListener("click", zoomIn);
@@ -213,7 +185,6 @@
   fitBtn.addEventListener("click", fit);
   fsBtn.addEventListener("click", toggleFullscreen);
 
-  // Keyboard
   window.addEventListener("keydown", (e) => {
     if (e.key === "ArrowRight") next();
     if (e.key === "ArrowLeft") prev();
@@ -222,31 +193,25 @@
     if (e.key.toLowerCase() === "f") toggleFullscreen();
   });
 
-  // Re-fit on resize/fullscreen change
   window.addEventListener("resize", () => {
     if (fitMode) renderPage(pageNum);
   });
-  document.addEventListener("fullscreenchange", () => {
-    if (fitMode) renderPage(pageNum);
-  });
 
-  // Boot
+  /* ---------- boot ---------- */
+
   (async function init() {
     const { files, driveParam } = getParams();
 
-    // Drive link (optional)
     if (driveEl) {
-      if (!driveParam) {
-        driveEl.style.display = "none";
-      } else {
+      if (!driveParam) driveEl.style.display = "none";
+      else {
         driveEl.href = driveParam;
         driveEl.style.display = "inline-flex";
       }
     }
 
     if (!files.length) {
-      showLoading(false);
-      showError("No PDF provided.\n\nAdd ?file=... or ?files=... to the URL.");
+      showError("No PDF provided.\n\nAdd ?file=... or ?files=...");
       return;
     }
 
@@ -255,26 +220,22 @@
 
     try {
       docs = await Promise.all(
-        files.map((f) =>
-          pdfjsLib
-            .getDocument({
-              url: f,
-              // These options avoid range/stream issues on some static hosts (GitHub raw, etc.)
-              disableRange: true,
-              disableStream: true,
-              disableAutoFetch: true,
-            })
-            .promise
+        files.map((url) =>
+          pdfjsLib.getDocument({
+            url,
+            disableRange: true,
+            disableStream: true,
+            disableAutoFetch: true,
+          }).promise
         )
       );
     } catch (err) {
       console.error(err);
-      showLoading(false);
       showError("PDF failed to load.\n\n" + (err?.message || String(err)));
+      showLoading(false);
       return;
     }
 
-    // Build cumulative page starts
     docPageStarts = [];
     totalPages = 0;
     for (const d of docs) {
