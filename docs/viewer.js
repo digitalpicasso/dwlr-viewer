@@ -188,5 +188,28 @@
 
   // Boot
   (async function init() {
-    const
+    const { files, driveParam } = getParams();
 
+    // Drive link (optional)
+    if (!driveParam) {
+      driveEl.style.display = "none";
+    } else {
+      driveEl.href = driveParam;
+      driveEl.style.display = "inline-flex";
+    }
+
+    showLoading(true);
+
+    docs = await Promise.all(files.map(f => pdfjsLib.getDocument(f).promise));
+
+    docPageStarts = [];
+    totalPages = 0;
+    for (const d of docs) {
+      docPageStarts.push(totalPages);
+      totalPages += d.numPages;
+    }
+
+    pageCountEl.textContent = String(totalPages);
+    queueRender(1);
+  })();
+})();
