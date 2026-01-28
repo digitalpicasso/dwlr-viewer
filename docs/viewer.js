@@ -1,6 +1,6 @@
 /* global pdfjsLib */
 (() => {
-  // Worker from CDN (must match version above)
+  // PDF.js worker from CDN (must match the version you load in index.html)
   pdfjsLib.GlobalWorkerOptions.workerSrc =
     "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.2.67/pdf.worker.min.js";
 
@@ -21,19 +21,33 @@
   const loadingEl = $("loading");
   const stageEl = $("stage");
   const driveEl = $("driveLink");
+  const errorEl = $("error");
 
   let docs = [];
   let docPageStarts = [];
   let totalPages = 0;
 
-  let pageNum = 1;   // global page number
+  let pageNum = 1; // global page number (1..totalPages)
   let scale = 1.0;
   let fitMode = true;
   let renderTask = null;
   let isRendering = false;
 
   function showLoading(show) {
+    if (!loadingEl) return;
     loadingEl.style.display = show ? "flex" : "none";
+  }
+
+  function showError(msg) {
+    if (!errorEl) return;
+    errorEl.style.display = "block";
+    errorEl.textContent = msg;
+  }
+
+  function hideError() {
+    if (!errorEl) return;
+    errorEl.style.display = "none";
+    errorEl.textContent = "";
   }
 
   function clamp(n, min, max) {
@@ -42,39 +56,49 @@
 
   function getParams() {
     const url = new URL(window.location.href);
-    const filesParam = url.searchParams.get("files"); // pipe-separated
+
+    // multi: ?files=a.pdf|b.pdf|c.pdf
+    const filesParam = url.searchParams.get("files");
+    // single: ?file=a.pdf
     const fileParam = url.searchParams.get("file");
+
     const driveParam = url.searchParams.get("drive") || "";
 
     const files = filesParam
-      ? filesParam.split("|").map(s => s.trim()).filter(Boolean)
+      ? filesParam.split("|").map((s) => s.trim()).filter(Boolean)
       : [fileParam || ""];
 
-    return { files, driveParam };
+    // Clean empties (prevents infinite loading on "")
+    const cleanedFiles = files.map((f) => (f || "").trim()).filter(Boolean);
+
+    return { files: cleanedFiles, driveParam };
   }
 
   function stageFitScale(viewport) {
+    // compute scale so the page fits inside the stage (slide-like)
     const pad = 18;
     const availW = Math.max(1, stageEl.clientWidth - pad * 2);
     const availH = Math.max(1, stageEl.clientHeight - pad * 2);
     return Math.min(availW / viewport.width, availH / viewport.height);
   }
 
+  // Map global pageNum -> { docIndex, localPage }
   function mapGlobalToLocal(globalPage) {
     const g = clamp(globalPage, 1, totalPages);
     let docIndex = 0;
 
     for (let i = 0; i < docPageStarts.length; i++) {
       const start = docPageStarts[i];
-      const nextStart = (i + 1 < docPageStarts.length) ? docPageStarts[i + 1] : totalPages;
-      if ((g - 1) >= start && (g - 1) < nextStart) {
+      const nextStart =
+        i + 1 < docPageStarts.length ? docPageStarts[i + 1] : totalPages;
+      if (g - 1 >= start && g - 1 < nextStart) {
         docIndex = i;
         break;
       }
     }
 
     const localZeroBased = (g - 1) - docPageStarts[docIndex];
-    return { docIndex, localPage: localZeroBased + 1 };
+    return { docIndex, localPage: localZeroBased + 1 }; // pdf.js pages are 1-based
   }
 
   async function renderPage(globalNum) {
@@ -82,39 +106,43 @@
 
     isRendering = true;
     showLoading(true);
+    hideError();
 
     if (renderTask) {
-      try { renderTask.cancel(); } catch (_) {}
+      try {
+        renderTask.cancel();
+      } catch (_) {}
       renderTask = null;
     }
 
-    const { docIndex, localPage } = mapGlobalToLocal(globalNum);
-    const doc = docs[docIndex];
-    const page = await doc.getPage(localPage);
-
-    const baseViewport = page.getViewport({ scale: 1 });
-    const useScale = fitMode ? stageFitScale(baseViewport) : scale;
-    const viewport = page.getViewport({ scale: useScale });
-
-    canvas.width = Math.floor(viewport.width);
-    canvas.height = Math.floor(viewport.height);
-
-    renderTask = page.render({ canvasContext: ctx, viewport });
-
     try {
+      const { docIndex, localPage } = mapGlobalToLocal(globalNum);
+      const doc = docs[docIndex];
+      const page = await doc.getPage(localPage);
+
+      const baseViewport = page.getViewport({ scale: 1 });
+      const useScale = fitMode ? stageFitScale(baseViewport) : scale;
+      const viewport = page.getViewport({ scale: useScale });
+
+      canvas.width = Math.floor(viewport.width);
+      canvas.height = Math.floor(viewport.height);
+
+      renderTask = page.render({ canvasContext: ctx, viewport });
+
       await renderTask.promise;
-    } catch (e) {
-      // ignore cancel
+
+      pageNumEl.textContent = String(pageNum);
+      pageCountEl.textContent = String(totalPages);
+      prevBtn.disabled = pageNum <= 1;
+      nextBtn.disabled = pageNum >= totalPages;
+    } catch (err) {
+      console.error(err);
+      showError("Render failed.\n\n" + (err?.message || String(err)));
     } finally {
       renderTask = null;
       showLoading(false);
       isRendering = false;
     }
-
-    pageNumEl.textContent = String(pageNum);
-    pageCountEl.textContent = String(totalPages);
-    prevBtn.disabled = pageNum <= 1;
-    nextBtn.disabled = pageNum >= totalPages;
   }
 
   function queueRender(num) {
@@ -122,21 +150,23 @@
     renderPage(pageNum);
   }
 
-  function next() { queueRender(pageNum + 1); }
-  function prev() { queueRender(pageNum - 1); }
+  function next() {
+    queueRender(pageNum + 1);
+  }
+  function prev() {
+    queueRender(pageNum - 1);
+  }
 
   function zoomIn() {
     fitMode = false;
     scale = clamp(scale + 0.15, 0.4, 4);
     renderPage(pageNum);
   }
-
   function zoomOut() {
     fitMode = false;
     scale = clamp(scale - 0.15, 0.4, 4);
     renderPage(pageNum);
   }
-
   function fit() {
     fitMode = true;
     renderPage(pageNum);
@@ -148,23 +178,31 @@
     else document.exitFullscreen?.();
   }
 
-  // Swipe
+  // Swipe support
   let touchStartX = null;
-  stageEl.addEventListener("touchstart", (e) => {
-    if (!e.touches?.length) return;
-    touchStartX = e.touches[0].clientX;
-  }, { passive: true });
+  stageEl.addEventListener(
+    "touchstart",
+    (e) => {
+      if (!e.touches?.length) return;
+      touchStartX = e.touches[0].clientX;
+    },
+    { passive: true }
+  );
 
-  stageEl.addEventListener("touchend", (e) => {
-    if (touchStartX === null) return;
-    const endX = e.changedTouches?.[0]?.clientX ?? touchStartX;
-    const dx = endX - touchStartX;
-    touchStartX = null;
+  stageEl.addEventListener(
+    "touchend",
+    (e) => {
+      if (touchStartX === null) return;
+      const endX = e.changedTouches?.[0]?.clientX ?? touchStartX;
+      const dx = endX - touchStartX;
+      touchStartX = null;
 
-    if (Math.abs(dx) < 40) return;
-    if (dx < 0) next();
-    else prev();
-  }, { passive: true });
+      if (Math.abs(dx) < 40) return;
+      if (dx < 0) next();
+      else prev();
+    },
+    { passive: true }
+  );
 
   // Controls
   nextBtn.addEventListener("click", next);
@@ -183,47 +221,59 @@
     if (e.key.toLowerCase() === "f") toggleFullscreen();
   });
 
-  window.addEventListener("resize", () => { if (fitMode) renderPage(pageNum); });
-  document.addEventListener("fullscreenchange", () => { if (fitMode) renderPage(pageNum); });
+  // Re-fit on resize/fullscreen change
+  window.addEventListener("resize", () => {
+    if (fitMode) renderPage(pageNum);
+  });
+  document.addEventListener("fullscreenchange", () => {
+    if (fitMode) renderPage(pageNum);
+  });
 
   // Boot
   (async function init() {
     const { files, driveParam } = getParams();
 
     // Drive link (optional)
-    if (!driveParam) {
-      driveEl.style.display = "none";
-    } else {
-      driveEl.href = driveParam;
-      driveEl.style.display = "inline-flex";
+    if (driveEl) {
+      if (!driveParam) {
+        driveEl.style.display = "none";
+      } else {
+        driveEl.href = driveParam;
+        driveEl.style.display = "inline-flex";
+      }
+    }
+
+    if (!files.length) {
+      showLoading(false);
+      showError("No PDF provided.\n\nAdd ?file=... or ?files=... to the URL.");
+      return;
     }
 
     showLoading(true);
+    hideError();
 
-    const errorEl = document.getElementById("error");
-const showError = (msg) => {
-  if (!errorEl) return;
-  errorEl.style.display = "block";
-  errorEl.textContent = msg;
-};
+    try {
+      docs = await Promise.all(
+        files.map((f) =>
+          pdfjsLib
+            .getDocument({
+              url: f,
+              // These options avoid range/stream issues on some static hosts (GitHub raw, etc.)
+              disableRange: true,
+              disableStream: true,
+              disableAutoFetch: true,
+            })
+            .promise
+        )
+      );
+    } catch (err) {
+      console.error(err);
+      showLoading(false);
+      showError("PDF failed to load.\n\n" + (err?.message || String(err)));
+      return;
+    }
 
-try {
-  docs = await Promise.all(files.map((f) =>
-    pdfjsLib.getDocument({
-      url: f,
-      // These two options fix a lot of “loads forever” issues on static hosts:
-      disableRange: true,
-      disableStream: true
-    }).promise
-  ));
-} catch (err) {
-  console.error(err);
-  showError("PDF failed to load.\\n\\n" + (err?.message || String(err)));
-  showLoading(false);
-  return;
-}
-
-
+    // Build cumulative page starts
     docPageStarts = [];
     totalPages = 0;
     for (const d of docs) {
