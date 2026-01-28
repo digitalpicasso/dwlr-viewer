@@ -200,7 +200,29 @@
 
     showLoading(true);
 
-    docs = await Promise.all(files.map(f => pdfjsLib.getDocument(f).promise));
+    const errorEl = document.getElementById("error");
+const showError = (msg) => {
+  if (!errorEl) return;
+  errorEl.style.display = "block";
+  errorEl.textContent = msg;
+};
+
+try {
+  docs = await Promise.all(files.map((f) =>
+    pdfjsLib.getDocument({
+      url: f,
+      // These two options fix a lot of “loads forever” issues on static hosts:
+      disableRange: true,
+      disableStream: true
+    }).promise
+  ));
+} catch (err) {
+  console.error(err);
+  showError("PDF failed to load.\\n\\n" + (err?.message || String(err)));
+  showLoading(false);
+  return;
+}
+
 
     docPageStarts = [];
     totalPages = 0;
