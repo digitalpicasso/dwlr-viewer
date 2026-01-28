@@ -1,5 +1,6 @@
 /* global pdfjsLib */
 (() => {
+  console.log("DWLR viewer.js loaded v7");
   // PDF.js worker from CDN (must match the version you load in index.html)
   pdfjsLib.GlobalWorkerOptions.workerSrc =
     "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.2.67/pdf.worker.min.js";
