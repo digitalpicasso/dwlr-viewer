@@ -1,14 +1,14 @@
 /* global pdfjsLib */
 (() => {
-  console.log("DWLR viewer.js loaded v9");
+  console.log("DWLR viewer.js loaded v10");
 
-  // IMPORTANT: local worker (matches index.html)
+  // Local worker (must exist and be non-empty)
   pdfjsLib.GlobalWorkerOptions.workerSrc = "pdfjs/pdf.worker.min.js";
 
   const $ = (id) => document.getElementById(id);
 
   const canvas = $("canvas");
-  const ctx = canvas.getContext("2d", { alpha: true });
+  const ctx = canvas.getContext("2d", { alpha: false }); // alpha false = easier visibility
 
   const prevBtn = $("prev");
   const nextBtn = $("next");
@@ -34,8 +34,6 @@
   let renderTask = null;
   let isRendering = false;
 
-  /* ---------- helpers ---------- */
-
   function showLoading(show) {
     if (!loadingEl) return;
     loadingEl.style.display = show ? "flex" : "none";
@@ -59,17 +57,15 @@
 
   function getParams() {
     const url = new URL(window.location.href);
-
     const filesParam = url.searchParams.get("files");
     const fileParam = url.searchParams.get("file");
     const driveParam = url.searchParams.get("drive") || "";
 
     const files = filesParam
-      ? filesParam.split("|").map(s => s.trim()).filter(Boolean)
+      ? filesParam.split("|").map((s) => s.trim()).filter(Boolean)
       : [fileParam || ""];
 
-    const cleaned = files.map(f => (f || "").trim()).filter(Boolean);
-    return { files: cleaned, driveParam };
+    return { files: files.map(f => (f || "").trim()).filter(Boolean), driveParam };
   }
 
   function stageFitScale(viewport) {
@@ -85,21 +81,16 @@
 
     for (let i = 0; i < docPageStarts.length; i++) {
       const start = docPageStarts[i];
-      const nextStart = (i + 1 < docPageStarts.length)
-        ? docPageStarts[i + 1]
-        : totalPages;
-
+      const nextStart = (i + 1 < docPageStarts.length) ? docPageStarts[i + 1] : totalPages;
       if ((g - 1) >= start && (g - 1) < nextStart) {
         docIndex = i;
         break;
       }
     }
 
-    const localZero = (g - 1) - docPageStarts[docIndex];
-    return { docIndex, localPage: localZero + 1 };
+    const localZeroBased = (g - 1) - docPageStarts[docIndex];
+    return { docIndex, localPage: localZeroBased + 1 };
   }
-
-  /* ---------- rendering ---------- */
 
   async function renderPage(globalNum) {
     if (!docs.length || isRendering) return;
@@ -115,22 +106,53 @@
 
     try {
       const { docIndex, localPage } = mapGlobalToLocal(globalNum);
-      const page = await docs[docIndex].getPage(localPage);
+      const doc = docs[docIndex];
+      const page = await doc.getPage(localPage);
 
       const baseViewport = page.getViewport({ scale: 1 });
       const useScale = fitMode ? stageFitScale(baseViewport) : scale;
+
+      // DPR-correct rendering
+      const dpr = Math.max(1, window.devicePixelRatio || 1);
       const viewport = page.getViewport({ scale: useScale });
 
-      canvas.width = Math.floor(viewport.width);
-      canvas.height = Math.floor(viewport.height);
+      // CSS size (what you see)
+      canvas.style.width = `${Math.floor(viewport.width)}px`;
+      canvas.style.height = `${Math.floor(viewport.height)}px`;
 
-      renderTask = page.render({ canvasContext: ctx, viewport });
+      // Backing store (actual pixels)
+      canvas.width = Math.floor(viewport.width * dpr);
+      canvas.height = Math.floor(viewport.height * dpr);
+
+      // Reset and scale context for DPR
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      console.log("viewport:", Math.floor(viewport.width), Math.floor(viewport.height), "dpr:", dpr);
+
+      // Clear with visible fill
+      ctx.fillStyle = "#111";
+      ctx.fillRect(0, 0, viewport.width, viewport.height);
+
+      renderTask = page.render({
+        canvasContext: ctx,
+        viewport,
+      });
+
       await renderTask.promise;
+
+      // DEBUG overlay: big red border + label (you should SEE this)
+      ctx.strokeStyle = "red";
+      ctx.lineWidth = 6;
+      ctx.strokeRect(6, 6, viewport.width - 12, viewport.height - 12);
+      ctx.fillStyle = "red";
+      ctx.font = "16px system-ui";
+      ctx.fillText("RENDERED", 18, 28);
 
       pageNumEl.textContent = String(pageNum);
       pageCountEl.textContent = String(totalPages);
       prevBtn.disabled = pageNum <= 1;
       nextBtn.disabled = pageNum >= totalPages;
+
     } catch (err) {
       console.error(err);
       showError("Render failed.\n\n" + (err?.message || String(err)));
@@ -145,8 +167,6 @@
     pageNum = clamp(num, 1, totalPages || 1);
     renderPage(pageNum);
   }
-
-  /* ---------- controls ---------- */
 
   const next = () => queueRender(pageNum + 1);
   const prev = () => queueRender(pageNum - 1);
@@ -169,14 +189,9 @@
   }
 
   function toggleFullscreen() {
-    if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen?.();
-    } else {
-      document.exitFullscreen?.();
-    }
+    if (!document.fullscreenElement) document.documentElement.requestFullscreen?.();
+    else document.exitFullscreen?.();
   }
-
-  /* ---------- events ---------- */
 
   nextBtn.addEventListener("click", next);
   prevBtn.addEventListener("click", prev);
@@ -188,16 +203,11 @@
   window.addEventListener("keydown", (e) => {
     if (e.key === "ArrowRight") next();
     if (e.key === "ArrowLeft") prev();
-    if (e.key === "+" || e.key === "=") zoomIn();
-    if (e.key === "-" || e.key === "_") zoomOut();
-    if (e.key.toLowerCase() === "f") toggleFullscreen();
   });
 
   window.addEventListener("resize", () => {
     if (fitMode) renderPage(pageNum);
   });
-
-  /* ---------- boot ---------- */
 
   (async function init() {
     const { files, driveParam } = getParams();
@@ -211,6 +221,7 @@
     }
 
     if (!files.length) {
+      showLoading(false);
       showError("No PDF provided.\n\nAdd ?file=... or ?files=...");
       return;
     }
@@ -231,8 +242,8 @@
       );
     } catch (err) {
       console.error(err);
-      showError("PDF failed to load.\n\n" + (err?.message || String(err)));
       showLoading(false);
+      showError("PDF failed to load.\n\n" + (err?.message || String(err)));
       return;
     }
 
