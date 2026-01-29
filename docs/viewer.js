@@ -1,6 +1,6 @@
 /* global pdfjsLib */
 (() => {
-  console.log("DWLR viewer.js loaded v8");
+  console.log("DWLR viewer.js loaded v9");
 
   // IMPORTANT: local worker (matches index.html)
   pdfjsLib.GlobalWorkerOptions.workerSrc = "pdfjs/pdf.worker.min.js";
