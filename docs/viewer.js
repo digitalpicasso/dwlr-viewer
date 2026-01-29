@@ -1,6 +1,6 @@
 /* global pdfjsLib */
 (() => {
-  console.log("DWLR viewer.js loaded v10");
+  console.log("DWLR viewer.js loaded v11");
 
   // Local worker (must exist and be non-empty)
   pdfjsLib.GlobalWorkerOptions.workerSrc = "pdfjs/pdf.worker.min.js";
@@ -68,11 +68,21 @@
     return { files: files.map(f => (f || "").trim()).filter(Boolean), driveParam };
   }
 
+  // FIXED: robust scale calc (prevents NaN/Infinity when stage size isn't ready)
   function stageFitScale(viewport) {
     const pad = 18;
-    const availW = Math.max(1, stageEl.clientWidth - pad * 2);
-    const availH = Math.max(1, stageEl.clientHeight - pad * 2);
-    return Math.min(availW / viewport.width, availH / viewport.height);
+
+    const rect = stageEl.getBoundingClientRect();
+    const availW = Math.max(1, rect.width - pad * 2);
+    const availH = Math.max(1, rect.height - pad * 2);
+
+    const vw = viewport.width || 1;
+    const vh = viewport.height || 1;
+
+    const s = Math.min(availW / vw, availH / vh);
+
+    if (!Number.isFinite(s) || s <= 0) return 1;
+    return s;
   }
 
   function mapGlobalToLocal(globalPage) {
@@ -127,7 +137,13 @@
       // Reset and scale context for DPR
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-      console.log("viewport:", Math.floor(viewport.width), Math.floor(viewport.height), "dpr:", dpr);
+      console.log(
+        "viewport:",
+        Math.floor(viewport.width),
+        Math.floor(viewport.height),
+        "dpr:",
+        dpr
+      );
 
       // Clear with visible fill
       ctx.fillStyle = "#111";
@@ -255,6 +271,8 @@
     }
 
     pageCountEl.textContent = String(totalPages);
-    queueRender(1);
+
+    // FIXED: wait 1 frame so layout is ready before computing fit scale
+    requestAnimationFrame(() => queueRender(1));
   })();
 })();
