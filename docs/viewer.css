@@ -7,11 +7,26 @@
 }
 
 *{box-sizing:border-box}
-html,body{height:100%; margin:0; background:var(--bg); color:var(--text); font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;}
 
-.deck{height:100%; width:100%; display:flex; flex-direction:column;}
+html,body{
+  height:100%;
+  margin:0;
+  background:var(--bg);
+  color:var(--text);
+  font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+}
 
+/* IMPORTANT: make sure the app has a real viewport height */
+.deck{
+  height:100vh;          /* changed from 100% */
+  width:100%;
+  display:flex;
+  flex-direction:column;
+}
+
+/* topbar stays fixed height */
 .topbar{
+  flex:0 0 auto;         /* added */
   display:flex;
   align-items:center;
   justify-content:space-between;
@@ -38,24 +53,31 @@ html,body{height:100%; margin:0; background:var(--bg); color:var(--text); font-f
 .btn:active{transform:translateY(1px)}
 .btn:disabled{opacity:.35; cursor:not-allowed}
 
+/* IMPORTANT: stage must have height + behave like a frame */
 .stage{
+  flex:1 1 auto;         /* added */
   position:relative;
-  flex:1;
+  width:100%;            /* added */
+  min-height:0;          /* added: prevents flex overflow bugs */
   display:flex;
   align-items:center;
   justify-content:center;
   overflow:hidden;
 }
 
+/* IMPORTANT: make canvas actually render visibly + not collapse */
 canvas{
+  display:block;         /* added */
+  margin:0 auto;         /* added */
   max-width:100%;
   max-height:100%;
   width:auto;
   height:auto;
-  background:transparent;
+  background:#111;       /* changed from transparent to visible */
 }
 
 .muted{color:var(--muted)}
+
 .hint{
   position:absolute;
   bottom:14px;
@@ -66,6 +88,7 @@ canvas{
   border:1px solid var(--line);
   border-radius:999px;
   background:rgba(0,0,0,.35);
+  pointer-events:none;   /* added: never blocks clicks */
 }
 
 .loading{
@@ -79,7 +102,9 @@ canvas{
   letter-spacing:.2px;
 }
 
+/* bottombar stays fixed height */
 .bottombar{
+  flex:0 0 auto;         /* added */
   display:flex;
   justify-content:center;
   padding:10px 12px 14px;
@@ -101,6 +126,7 @@ canvas{
   color:var(--text);
   background:rgba(255,255,255,.07);
 }
+
 .error{
   position:absolute;
   left:12px; right:12px; bottom:54px;
@@ -113,5 +139,3 @@ canvas{
   line-height:1.35;
   white-space:pre-wrap;
 }
-
-
